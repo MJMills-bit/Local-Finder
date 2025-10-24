@@ -1,103 +1,138 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { Suspense, useEffect, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
+import Logo from "@/components/Logo";
+import MapClient from "@/components/MapClient";
+import TopSearch from "@/components/TopSearch";
+import CategoryAside from "@/components/CategoryAside";
+import {MobileResultsSheet} from "@/components/MobileResultsSheet";
+
+import useStore from "@/lib/useStore";
+
+type TopSearchSubmitDetail = { query: string };
+type GeoJSONPoly =
+  | { type: "Polygon"; coordinates: number[][][] }
+  | { type: "MultiPolygon"; coordinates: number[][][][] };
+type GeocodeResponse = {
+  found: boolean;
+  lat: number;
+  lng: number;
+  name?: string;
+  bbox?: [number, number, number, number];
+  polygon?: GeoJSONPoly;
+};
+
+export default function HomePage() {
+  const searchParams = useSearchParams();
+
+  const initial = useMemo<[number, number]>(() => {
+    const lat = Number(searchParams.get("lat"));
+    const lng = Number(searchParams.get("lng"));
+    return Number.isFinite(lat) && Number.isFinite(lng)
+      ? [lat, lng]
+      : [-26.2041, 28.0473]; // Johannesburg fallback
+  }, [searchParams]);
+
+  const center = useStore((s) => s.center);
+  const setCenter = useStore((s) => s.setCenter);
+  const setQuery = useStore((s) => s.setQuery);
+
+  useEffect(() => {
+    function handleSearch(e: Event) {
+      const ce = e as CustomEvent<TopSearchSubmitDetail>;
+      const q = (ce.detail?.query ?? "").trim();
+      if (!q) return;
+
+      setQuery(q);
+
+      (async () => {
+        try {
+          const params = new URLSearchParams({
+            q,
+            nearLat: String(center?.[0] ?? initial[0]),
+            nearLng: String(center?.[1] ?? initial[1]),
+            radiusKm: "30",
+          });
+
+          const res = await fetch(`/api/geocode?${params.toString()}`);
+          if (!res.ok) return;
+
+          const data = (await res.json()) as GeocodeResponse;
+
+          setCenter([data.lat, data.lng]);
+
+          let bbox = data.bbox;
+          if (!bbox) {
+            const d = 0.01;
+            bbox = [data.lat - d, data.lng - d, data.lat + d, data.lng + d];
+          }
+
+          window.dispatchEvent(
+            new CustomEvent("map:area", {
+              detail: {
+                name: data.name ?? q,
+                bbox,
+                polygon: data.polygon,
+              },
+            })
+          );
+        } catch {
+          // Silent failure
+        }
+      })();
+    }
+
+    window.addEventListener("topsearch:submit", handleSearch as EventListener);
+    return () =>
+      window.removeEventListener(
+        "topsearch:submit",
+        handleSearch as EventListener
+      );
+  }, [center, initial, setCenter, setQuery]);
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <main className="min-h-dvh">
+      {/* Header */}
+      <header className="sticky top-0 z-[1200] border-b border-muted bg-[--bg] py-4">
+        <div className="h-full flex items-center justify-center">
+          <h1 className="flex items-center gap-2 text-3xl md:text-5xl font-bold leading-none">
+            <span>Local</span>
+            <Logo className="h-[3.5rem] w-auto text-[rgb(var(--accent))]" />
+            <span>Finder</span>
+          </h1>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
+      </header>
+
+      {/* Search bar */}
+      <TopSearch />
+
+      {/* Responsive layout: flex on mobile, grid on desktop */}
+      <div className="flex flex-col md:grid md:grid-cols-[18rem_1fr] md:gap-0 border-t">
+        {/* Category aside */}
+        <div className="order-1 md:order-none md:border-r">
+          <CategoryAside />
+        </div>
+
+        {/* Mobile-only results panel */}
+        <div className="block md:hidden order-2">
+          {/* <MobileResultsSheet /> */}
+        </div>
+
+        {/* Map section */}
+        <section
+          className={[
+            // Mobile height accounts for header + search + results
+            "relative order-3 md:order-none",
+            "h-[calc(100dvh-56px-48px-240px)]",
+            "md:h-[calc(100dvh-56px-48px)]",
+          ].join(" ")}
         >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+          <Suspense fallback={<div className="h-full w-full" />}>
+            <MapClient center={initial} />
+          </Suspense>
+        </section>
+      </div>
+    </main>
   );
 }

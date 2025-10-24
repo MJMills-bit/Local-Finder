@@ -1,26 +1,114 @@
-@import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@import 'tailwindcss';
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
 
-@media (prefers-color-scheme: dark) {
+/* Optional web font */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* ================================
+   Design tokens (light/dark)
+   ================================ */
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --bg:            246 246 246; /* #f6f6f6 */
+    --surface:       255 255 255; /* #ffffff */
+    --muted:         229 231 235; /* gray-200 */
+    --border:        229 231 235; /* gray-200 */
+    --text:           17  24  39; /* gray-900 */
+    --text-dim:       75  85  99; /* gray-600 */
+    --accent:         99 102 241; /* indigo-500 */
+    --accent-ink:    255 255 255; /* white */
+    --ring:           99 102 241; /* indigo-500 */
+    --aside: 18rem;
+  }
+
+  html.dark {
+    --bg:             17  24  39; /* gray-900 */
+    --surface:        31  41  55; /* gray-800 */
+    --muted:          55  65  81; /* gray-700 */
+    --border:         63  63  70; /* zinc-700 */
+    --text:          243 244 246; /* gray-100 */
+    --text-dim:      156 163 175; /* gray-400 */
+    --accent:         99 102 241; /* indigo-500 */
+    --accent-ink:    255 255 255;
+    --ring:          129 140 248; /* indigo-400 */
+  }
+
+  /* Base text & canvas */
+  html { -webkit-font-smoothing: antialiased; }
+  body {
+    background: rgb(var(--bg));
+    color: rgb(var(--text));
+    font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    height: 100%;
+    overflow: hidden; /* Prevents the main scroll */
+  }
+
+  a {
+    /* subtle color blend for links */
+    color: color-mix(in oklab, rgb(var(--accent)) 60%, rgb(var(--text)) 40%);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ================================
+   Component shells (structure via @apply)
+   ================================ */
+@layer components {
+  .btn         { @apply inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium shadow-sm transition; }
+  .btn-ghost   { @apply border-transparent bg-transparent; }
+  .input       { @apply w-full rounded-md border px-3 py-2 text-sm outline-none shadow-sm; }
+  .card        { @apply rounded-lg border p-3 shadow-sm; }
+  .badge       { @apply inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium; }
+  .text-dim    { @apply text-sm; }     /* color set below */
+  .border-muted{ @apply border; }      /* color set below */
+  .logo        { @apply h-8 w-8 md:h-10 md:w-10; color: rgb(var(--accent)); }
+
+  /* Reusable UI pieces */
+  .search-box   { @apply rounded-xl border shadow-sm; }
+  .search-input { @apply w-full bg-transparent px-4 py-3 text-sm placeholder:opacity-70 focus:outline-none; }
+  .chip         { @apply rounded-full border px-3 py-1.5 text-sm hover:opacity-90; }
+  .chip-accent  { @apply rounded-full px-3 py-1.5 text-sm font-medium; }
+  .list-card    { @apply rounded-xl border p-4 shadow-sm transition hover:shadow; }
 }
+
+/* ================================
+   Token-driven colors
+   (kept outside @layer to stay as raw CSS vars)
+   ================================ */
+.btn              { background: rgb(var(--surface)); color: rgb(var(--text)); border-color: rgb(var(--border)); }
+.btn-primary      { background: rgb(var(--accent));  color: rgb(var(--accent-ink)); border-color: rgb(var(--accent)); }
+.input            { background: rgb(var(--surface)); color: rgb(var(--text)); border-color: rgb(var(--border)); }
+.card             { background: rgb(var(--surface)); border-color: rgb(var(--border)); }
+.badge            { background: rgb(var(--muted));   border-color: rgb(var(--border)); color: rgb(var(--text)); }
+.text-dim         { color:      rgb(var(--text-dim)); }
+.border-muted     { border-color: rgb(var(--border)); }
+
+.search-box       { background: rgb(var(--surface)); border-color: rgb(var(--border)); }
+.search-input::placeholder { color: rgb(var(--text-dim)); }
+.chip             { background: rgb(var(--surface)); border-color: rgb(var(--border)); color: rgb(var(--text)); }
+.chip-accent      { background: color-mix(in oklab, rgb(var(--accent)) 12%, transparent); color: rgb(var(--accent)); }
+.list-card        { background: rgb(var(--surface)); border-color: rgb(var(--border)); }
+
+/* Soft shadow used by cards/search */
+.shadow-sm { box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06); }
+
+/* ================================
+   Utility aliases mapped to tokens
+   ================================ */
+@layer utilities {
+  .bg-bg        { background-color: rgb(var(--bg)); }
+  .bg-surface   { background-color: rgb(var(--surface)); }
+  .text-fg      { color: rgb(var(--text)); }
+  .text-muted   { color: rgb(var(--text-dim)); }
+  .border-token { border-color: rgb(var(--border)); }
+  .bg-accent    { background-color: rgb(var(--accent)); color: rgb(var(--accent-ink)); }
+  .text-accent  { color: rgb(var(--accent)); }
+  .ring-token   { --tw-ring-color: rgb(var(--ring) / 0.35); }
+}
+
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+}
+
+

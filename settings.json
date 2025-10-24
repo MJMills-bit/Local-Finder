@@ -1,0 +1,20 @@
+{
+  // tell VS Code not to complain about Tailwind/PostCSS at-rules
+  "css.lint.unknownAtRules": "ignore",
+  "scss.lint.unknownAtRules": "ignore",
+  "less.lint.unknownAtRules": "ignore",
+
+  // make *.css open as PostCSS so Tailwind directives are understood
+  "files.associations": {
+    "*.css": "postcss"
+  },
+
+  // ensure Tailwind IntelliSense attaches to THIS folder
+  "tailwindCSS.root": "./",
+  "tailwindCSS.emmetCompletions": true,
+
+  // (optional) helps IntelliSense in odd files
+  "tailwindCSS.includeLanguages": {
+    "plaintext": "html"
+  }
+}
