@@ -1,106 +1,128 @@
 // src/lib/useStore.ts
 import { create } from "zustand";
-import type {
-  Category,
-  Place,
-  LatLng,
-  CenterTuple,
-  ViewState,
-  AreaOverlay,
-} from "./types";
 
-interface AppState {
-  // Map position/view
-  center?: CenterTuple;
-  setCenter: (c: CenterTuple) => void;
+export type CategoryId =
+  | "all"
+  | "coffee"
+  | "coworking"
+  | "clinic"
+  | "restaurant"
+  | "bar"
+  | "supermarket"
+  | "pharmacy"
+  | "hotel"
+  | "hospital"
+  | "bank"
+  | "atm"
+  | "fuel"
+  | "park";
+
+export type Place = {
+  id: string;
+  lat: number;
+  lng: number;
+  category: CategoryId;
+  name?: string | null;
+  address?: string | null;
+  tags?: Record<string, string>;
+};
+
+export type UserLocation = { lat: number; lng: number } | null;
+
+export type AreaOverlay = {
+  key: string;
+  bbox?: [number, number, number, number];
+  polygon?: unknown;
+} | null;
+
+type ViewState = {
+  zoom: number;
+};
+
+type State = {
+  // map centre, nullable until located
+  center: [number, number] | null;
   view: ViewState;
-  setZoom: (z: number) => void;
+  radius: number | null;
 
-  // User location
-  userLocation?: LatLng;
-  setUserLocation: (pos: LatLng) => void;
-
-  // Filters
-  category: Category;
-  radius: number;
+  // filters
+  category: CategoryId;
   query: string;
-  setCategory: (c: Category) => void;
-  setRadius: (r: number) => void;
+
+  // data
+  places: Place[];
+  area: AreaOverlay;
+
+  // selection and focus
+  selectedPlace: Place | null;
+  lockOnSelection: boolean;
+
+  // user location
+  userLocation: UserLocation;
+
+  // global status
+  loading: boolean;
+  error: string | null;
+
+  // actions
+  setCenter: (c: [number, number] | null) => void;
+  setZoom: (z: number) => void;
+  setRadius: (r: number | null) => void;
+
+  setCategory: (c: CategoryId) => void;
   setQuery: (q: string) => void;
 
-  // Results
-  places: Place[];
   setPlaces: (p: Place[]) => void;
-  selectedPlace: Place | null;
+  setArea: (area: AreaOverlay) => void;
+
   setSelectedPlace: (p: Place | null) => void;
+  setLockOnSelection: (lock: boolean) => void;
 
-  // UI behaviour
-  lockOnSelection: boolean;
-  setLockOnSelection: (v: boolean) => void;
+  setUserLocation: (loc: UserLocation) => void;
 
-  // Area overlay
-  area: AreaOverlay | null;
-  setArea: (a: AreaOverlay | null) => void;
+  setLoading: (flag: boolean) => void;
+  setError: (msg: string | null) => void;
+};
 
-  // Global fetch state (NEW)
-  loading: boolean;
-  setLoading: (v: boolean) => void;
-  error: string | null;
-  setError: (e: string | null) => void;
-}
+const useStore = create<State>((set) => ({
+  center: null,
+  view: { zoom: 14 },
+  radius: null,
 
-const DEFAULT_ZOOM = 14;
-const DEFAULT_RADIUS = 1200;
-
-function clampRadius(r: number): number {
-  if (Number.isNaN(r)) return DEFAULT_RADIUS;
-  return Math.min(12_000, Math.max(50, Math.round(r)));
-}
-
-const useStore = create<AppState>((set) => ({
-  // Map position/view
-  center: undefined,
-  setCenter: (c) => set({ center: c }),
-  view: { zoom: DEFAULT_ZOOM },
-  setZoom: (z) =>
-    set((s) => ({
-      view: { ...s.view, zoom: Math.max(1, Math.min(20, Math.round(z))) },
-    })),
-
-  // User location
-  userLocation: undefined,
-  setUserLocation: (pos) => set({ userLocation: pos }),
-
-  // Filters
-  category: "coffee",
-  radius: DEFAULT_RADIUS,
+  category: "all",
   query: "",
-  setCategory: (c) => set({ category: c }),
-  setRadius: (r) => set({ radius: clampRadius(r) }),
-  setQuery: (q) => set({ query: q }),
 
-  // Results
   places: [],
-  setPlaces: (p) => set({ places: p }),
-  selectedPlace: null,
-  setSelectedPlace: (p) => set({ selectedPlace: p }),
-
-  // UI behaviour
-  lockOnSelection: false,
-  setLockOnSelection: (v) => set({ lockOnSelection: v }),
-
-  // Area overlay
   area: null,
-  setArea: (a) => set({ area: a }),
 
-  // Global fetch state (NEW)
+  selectedPlace: null,
+  lockOnSelection: false,
+
+  userLocation: null,
+
   loading: false,
-  setLoading: (v) => set({ loading: v }),
   error: null,
-  setError: (e) => set({ error: e }),
+
+  setCenter: (center) => set({ center }),
+  setZoom: (zoom) =>
+    set((state) => ({
+      view: { ...state.view, zoom },
+    })),
+  setRadius: (radius) => set({ radius }),
+
+  setCategory: (category) => set({ category }),
+  setQuery: (query) => set({ query }),
+
+  setPlaces: (places) => set({ places }),
+  setArea: (area) => set({ area }),
+
+  setSelectedPlace: (selectedPlace) => set({ selectedPlace }),
+  setLockOnSelection: (lockOnSelection) => set({ lockOnSelection }),
+
+  setUserLocation: (userLocation) => set({ userLocation }),
+
+  setLoading: (loading) => set({ loading }),
+  setError: (error) => set({ error }),
 }));
 
 export default useStore;
-
-// Legacy re-exports so `import type { Category, Place } from '@/lib/useStore'` still works
-export type { Category, Place, AreaOverlay, CenterTuple } from "./types";

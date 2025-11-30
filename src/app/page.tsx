@@ -1,3 +1,4 @@
+// src/app/page.tsx
 "use client";
 
 import { Suspense, useEffect, useMemo } from "react";
@@ -6,22 +7,25 @@ import Logo from "@/components/Logo";
 import MapClient from "@/components/MapClient";
 import TopSearch from "@/components/TopSearch";
 import CategoryAside from "@/components/CategoryAside";
-import {MobileResultsSheet} from "@/components/MobileResultsSheet";
-
+import RadiusControl from "@/components/RadiusControl";
 import useStore from "@/lib/useStore";
 
 type TopSearchSubmitDetail = { query: string };
+
 type GeoJSONPoly =
   | { type: "Polygon"; coordinates: number[][][] }
   | { type: "MultiPolygon"; coordinates: number[][][][] };
-type GeocodeResponse = {
-  found: boolean;
-  lat: number;
-  lng: number;
-  name?: string;
-  bbox?: [number, number, number, number];
-  polygon?: GeoJSONPoly;
-};
+
+type GeocodeResponse =
+  | {
+      found: true;
+      lat: number;
+      lng: number;
+      name?: string;
+      bbox?: [number, number, number, number];
+      polygon?: GeoJSONPoly;
+    }
+  | { found: false; error?: string };
 
 export default function HomePage() {
   const searchParams = useSearchParams();
@@ -31,7 +35,7 @@ export default function HomePage() {
     const lng = Number(searchParams.get("lng"));
     return Number.isFinite(lat) && Number.isFinite(lng)
       ? [lat, lng]
-      : [-26.2041, 28.0473]; // Johannesburg fallback
+      : [-26.2041, 28.0473];
   }, [searchParams]);
 
   const center = useStore((s) => s.center);
@@ -43,7 +47,6 @@ export default function HomePage() {
       const ce = e as CustomEvent<TopSearchSubmitDetail>;
       const q = (ce.detail?.query ?? "").trim();
       if (!q) return;
-
       setQuery(q);
 
       (async () => {
@@ -54,85 +57,98 @@ export default function HomePage() {
             nearLng: String(center?.[1] ?? initial[1]),
             radiusKm: "30",
           });
-
-          const res = await fetch(`/api/geocode?${params.toString()}`);
+          const res = await fetch(`/api/geocode?${params.toString()}`, {
+            cache: "no-store",
+          });
           if (!res.ok) return;
 
           const data = (await res.json()) as GeocodeResponse;
+          if (!("found" in data) || !data.found) return;
 
           setCenter([data.lat, data.lng]);
 
-          let bbox = data.bbox;
-          if (!bbox) {
-            const d = 0.01;
-            bbox = [data.lat - d, data.lng - d, data.lat + d, data.lng + d];
-          }
+          const bbox =
+            data.bbox ??
+            ([
+              data.lat - 0.01,
+              data.lng - 0.01,
+              data.lat + 0.01,
+              data.lng + 0.01,
+            ] as [number, number, number, number]);
 
           window.dispatchEvent(
             new CustomEvent("map:area", {
-              detail: {
-                name: data.name ?? q,
-                bbox,
-                polygon: data.polygon,
-              },
+              detail: { name: data.name ?? q, bbox, polygon: data.polygon },
             })
           );
         } catch {
-          // Silent failure
+          // silent
         }
       })();
     }
 
     window.addEventListener("topsearch:submit", handleSearch as EventListener);
     return () =>
-      window.removeEventListener(
-        "topsearch:submit",
-        handleSearch as EventListener
-      );
+      window.removeEventListener("topsearch:submit", handleSearch as EventListener);
   }, [center, initial, setCenter, setQuery]);
 
   return (
-    <main className="min-h-dvh">
-      {/* Header */}
-      <header className="sticky top-0 z-[1200] border-b border-muted bg-[--bg] py-4">
-        <div className="h-full flex items-center justify-center">
-          <h1 className="flex items-center gap-2 text-3xl md:text-5xl font-bold leading-none">
-            <span>Local</span>
-            <Logo className="h-[3.5rem] w-auto text-[rgb(var(--accent))]" />
-            <span>Finder</span>
-          </h1>
+  <main className="h-dvh bg-[--bg] flex flex-col">
+    {/* Fixed Header */}
+    <header className="sticky top-0 z-[1200] border-b border-muted bg-[--bg] py-4">
+      <div className="h-full flex items-center justify-center">
+        <h1 className="flex items-center gap-2 text-2xl sm:text-3xl md:text-5xl font-bold leading-none">
+          <span>Local</span>
+          <Logo className="h-[2.25rem] sm:h-[3rem] md:h-[3.5rem] w-auto text-[rgb(var(--accent))]" />
+          <span>Finder</span>
+        </h1>
+      </div>
+    </header>
+
+    {/* Sticky Search Bar */}
+    <TopSearch />
+
+    {/* Main Layout */}
+    <div className="flex-1 min-h-0 md:grid md:grid-cols-[18rem_1fr] border-t">
+      
+      {/* Desktop Sidebar */}
+      <aside className="hidden md:flex md:flex-col md:sticky md:top-0 md:h-[100svh] md:overflow-y-auto md:border-r bg-white/90 backdrop-blur">
+        {/* RadiusControl always on top */}
+        <div className="p-3 border-b bg-white/95">
+          <RadiusControl />
         </div>
-      </header>
 
-      {/* Search bar */}
-      <TopSearch />
-
-      {/* Responsive layout: flex on mobile, grid on desktop */}
-      <div className="flex flex-col md:grid md:grid-cols-[18rem_1fr] md:gap-0 border-t">
-        {/* Category aside */}
-        <div className="order-1 md:order-none md:border-r">
+        {/* Categories scroll under it */}
+        <div className="flex-1 overflow-y-auto">
           <CategoryAside />
         </div>
+      </aside>
 
-        {/* Mobile-only results panel */}
-        <div className="block md:hidden order-2">
-          {/* <MobileResultsSheet /> */}
+      {/* MOBILE + MAP LAYOUT */}
+      <section className="flex flex-col h-full min-h-0">
+
+        {/* MOBILE filters / results (top block) */}
+        <div className="md:hidden flex flex-col px-3 pt-2 max-h-[50svh] overflow-y-auto gap-3">
+          <div className="rounded-xl border bg-white/95 shadow-sm p-3">
+            <RadiusControl />
+          </div>
+
+          <div className="rounded-xl border bg-white/95 shadow-sm p-3">
+            <CategoryAside />
+          </div>
         </div>
 
-        {/* Map section */}
-        <section
-          className={[
-            // Mobile height accounts for header + search + results
-            "relative order-3 md:order-none",
-            "h-[calc(100dvh-56px-48px-240px)]",
-            "md:h-[calc(100dvh-56px-48px)]",
-          ].join(" ")}
-        >
+        {/* MOBILE & DESKTOP MAP AREA */}
+        <div className="flex-1 min-h-[50svh] relative">
           <Suspense fallback={<div className="h-full w-full" />}>
             <MapClient center={initial} />
           </Suspense>
-        </section>
-      </div>
-    </main>
-  );
+        </div>
+
+      </section>
+    </div>
+  </main>
+);
+
+
 }

@@ -1,6 +1,5 @@
-
+/* src/app/globals.css */
 @import 'tailwindcss';
-
 
 /* Optional web font */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -34,18 +33,22 @@
     --ring:          129 140 248; /* indigo-400 */
   }
 
-  /* Base text & canvas */
+  /* Safe viewport fallback for older mobiles */
+  :root { --app-vh: 100svh; }
+  @supports not (height: 100svh) {
+    :root { --app-vh: 100vh; }
+  }
+
   html { -webkit-font-smoothing: antialiased; }
   body {
     background: rgb(var(--bg));
     color: rgb(var(--text));
     font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-    height: 100%;
-    overflow: hidden; /* Prevents the main scroll */
+    min-height: 100%;
+    overflow: auto;   /* allow natural page scroll on mobile */
   }
 
   a {
-    /* subtle color blend for links */
     color: color-mix(in oklab, rgb(var(--accent)) 60%, rgb(var(--text)) 40%);
   }
 }
@@ -59,11 +62,10 @@
   .input       { @apply w-full rounded-md border px-3 py-2 text-sm outline-none shadow-sm; }
   .card        { @apply rounded-lg border p-3 shadow-sm; }
   .badge       { @apply inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium; }
-  .text-dim    { @apply text-sm; }     /* color set below */
-  .border-muted{ @apply border; }      /* color set below */
+  .text-dim    { @apply text-sm; }
+  .border-muted{ @apply border; }
   .logo        { @apply h-8 w-8 md:h-10 md:w-10; color: rgb(var(--accent)); }
 
-  /* Reusable UI pieces */
   .search-box   { @apply rounded-xl border shadow-sm; }
   .search-input { @apply w-full bg-transparent px-4 py-3 text-sm placeholder:opacity-70 focus:outline-none; }
   .chip         { @apply rounded-full border px-3 py-1.5 text-sm hover:opacity-90; }
@@ -72,8 +74,7 @@
 }
 
 /* ================================
-   Token-driven colors
-   (kept outside @layer to stay as raw CSS vars)
+   Token-driven colours
    ================================ */
 .btn              { background: rgb(var(--surface)); color: rgb(var(--text)); border-color: rgb(var(--border)); }
 .btn-primary      { background: rgb(var(--accent));  color: rgb(var(--accent-ink)); border-color: rgb(var(--accent)); }
@@ -93,7 +94,7 @@
 .shadow-sm { box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06); }
 
 /* ================================
-   Utility aliases mapped to tokens
+   Utilities mapped to tokens
    ================================ */
 @layer utilities {
   .bg-bg        { background-color: rgb(var(--bg)); }
@@ -106,9 +107,4 @@
   .ring-token   { --tw-ring-color: rgb(var(--ring) / 0.35); }
 }
 
-.leaflet-container {
-  width: 100%;
-  height: 100%;
-}
-
-
+.leaflet-container { width: 100%; height: 100%; }

@@ -1,220 +1,310 @@
 // src/app/api/overpass/route.ts
-import { NextResponse } from "next/server";
-import type { Category, Place } from "@/lib/useStore";
+import { NextRequest, NextResponse } from "next/server";
+import type { Place } from "@/lib/types";
 
-/* ---------- Types ---------- */
-type OSMTags = Record<string, string>;
-type OSMCenter = { lat: number; lon: number };
-type OSMElement = {
-  type: "node" | "way" | "relation";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+// Overpass servers expect an identifying User-Agent.
+// You can override this with OVERPASS_UA in your env.
+const DEFAULT_UA =
+  "LocalFinder/1.0 (https://zasupport.com; admin@zasupport.com)";
+const USER_AGENT = process.env.OVERPASS_UA ?? DEFAULT_UA;
+
+// Primary and fallback Overpass mirrors
+const OVERPASS_MIRRORS: readonly string[] = [
+  "https://overpass-api.de/api/interpreter",
+  "https://lz4.overpass-api.de/api/interpreter",
+];
+
+type OverpassElementType = "node" | "way" | "relation";
+
+interface OverpassCenter {
+  lat: number;
+  lon: number;
+}
+
+interface OverpassElement {
+  type: OverpassElementType;
   id: number;
   lat?: number;
   lon?: number;
-  center?: OSMCenter;
-  tags?: OSMTags;
-};
-type OSMResponse = { elements: OSMElement[] };
-
-const UA = "LocalFinder/1.1 (contact: support@localfinder.dev)";
-
-/* ---------- Helpers ---------- */
-function escapeRegex(input: string) {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  center?: OverpassCenter;
+  tags?: Record<string, string>;
 }
 
-function hasFinite(n: unknown): n is number {
-  return typeof n === "number" && Number.isFinite(n);
+interface OverpassResponse {
+  elements: OverpassElement[];
 }
 
-function pickName(tags: OSMTags): string | undefined {
-  return (
-    tags.name ||
-    tags.brand ||
-    tags.operator ||
-    // last-resort: use a meaningful tag as a label so cards still render
-    (tags.amenity ? `${tags.amenity}` : undefined) ||
-    (tags.shop ? `${tags.shop}` : undefined) ||
-    (tags.tourism ? `${tags.tourism}` : undefined)
-  );
+interface CacheEntry {
+  ts: number;
+  data: Place[];
 }
 
-function pickAddress(tags: OSMTags): string | undefined {
-  const full = tags["addr:full"];
-  if (full) return full;
-  const parts = [
-    tags["addr:housenumber"],
-    tags["addr:street"],
-    tags["addr:suburb"],
-    tags["addr:city"],
-  ].filter(Boolean);
-  return parts.length ? parts.join(", ") : undefined;
+// Simple in-memory cache
+const CACHE = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function clampRadius(radius: number | undefined): number {
+  // Default to 3000 m (3 km) if nothing sensible is passed
+  if (!Number.isFinite(radius ?? NaN)) return 3000;
+  const r = radius as number;
+  // Allow between 150 m and 30 km
+  return Math.max(150, Math.min(r, 30_000));
 }
 
-function mapTagsToCategory(tags: OSMTags, fallback: Category): Category {
-  // amenity-based
-  if (tags.amenity === "cafe") return "coffee";
-  if (tags.amenity === "clinic") return "clinic";
-  if (tags.amenity === "restaurant") return "restaurant";
-  if (tags.amenity === "fast_food") return "fastfood";
-  if (tags.amenity === "bar") return "bar";
-  if (tags.amenity === "pub") return "pub";
-  if (tags.amenity === "pharmacy") return "pharmacy";
-  if (tags.amenity === "hospital") return "hospital";
-  if (tags.amenity === "bank") return "bank";
-  if (tags.amenity === "atm") return "atm";
-  if (tags.amenity === "fuel") return "fuel";
-
-  // shop-based
-  if (tags.shop === "supermarket") return "supermarket";
-  if (tags.shop) return "shop";
-
-  // tourism / leisure
-  if (tags.tourism === "hotel") return "hotel";
-  if (tags.tourism === "attraction") return "attraction";
-  if (tags.leisure === "park") return "park";
-
-  // office
-  if (tags.office === "coworking") return "coworking";
-
-  return fallback;
+function parseNumber(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
 }
 
-function elementToPlace(el: OSMElement, fallback: Category): Place | null {
-  const lat = hasFinite(el.lat) ? el.lat : hasFinite(el.center?.lat) ? el.center!.lat : undefined;
-  const lng = hasFinite(el.lon) ? el.lon : hasFinite(el.center?.lon) ? el.center!.lon : undefined;
-  if (!hasFinite(lat) || !hasFinite(lng)) return null;
+// Map frontend categories to Overpass tag filters
+function buildCategoryFilters(category: string | null): string[] {
+  const cat = (category ?? "all").toLowerCase();
 
-  const tags: OSMTags = el.tags ?? {};
-  const finalName = pickName(tags) ?? "Unnamed place";
-  const address = pickAddress(tags);
-  const category = mapTagsToCategory(tags, fallback);
+  if (cat === "coffee") {
+    return [
+      '["amenity"="cafe"]',
+      '["amenity"="coffee"]',
+      '["amenity"="coffee_shop"]',
+      '["shop"="coffee"]',
+    ];
+  }
 
-  return {
-    id: String(el.id),
-    name: finalName,
-    lat,
-    lng,
-    category,
-    address,
-    tags,
-  };
+  if (cat === "clinic") {
+    return [
+      '["amenity"="clinic"]',
+      '["healthcare"="clinic"]',
+      '["amenity"="doctors"]',
+    ];
+  }
+
+  if (cat === "coworking") {
+    return ['["office"="coworking"]', '["amenity"="coworking_space"]'];
+  }
+
+  // Generic set used when category is "all" or another unsupported value.
+  return [
+    '["amenity"]',
+    '["shop"]',
+    '["office"="coworking"]',
+    '["healthcare"]',
+  ];
 }
 
-/* ---------- Query builder ---------- */
-function buildQuery(
+// Category-based query (no free-text search)
+function buildOverpassQuery(
   lat: number,
   lng: number,
-  radiusM: number,
-  category: Category,
-  q?: string
+  radius: number,
+  category: string | null,
 ): string {
-  const text = q?.trim();
-  const rx = text ? escapeRegex(text) : "";
-  const filter = text ? `[~"^(name|brand|operator)$"~"${rx}",i]` : "";
+  const filters = buildCategoryFilters(category);
+  const around = `around:${radius},${lat},${lng}`;
 
-  const queryBase = (selector: string) =>
-    `nwr(around:${radiusM},${lat},${lng})${selector}${filter};`;
-
-  const selectors: Record<Category, string> = {
-    all: `
-      ${queryBase("[amenity]")}
-      ${queryBase("[shop]")}
+  const blocks = filters.map(
+    (f) => `
+      node${f}(${around});
+      way${f}(${around});
+      relation${f}(${around});
     `,
-    coffee: queryBase("[amenity=cafe]"),
-    clinic: queryBase("[amenity=clinic]"),
-    coworking: queryBase("[office=coworking]"),
-    restaurant: queryBase("[amenity=restaurant]"),
-    attraction: queryBase("[tourism=attraction]"),
-    shop: queryBase("[shop]"),
-    supermarket: queryBase("[shop=supermarket]"),
-    pharmacy: queryBase("[amenity=pharmacy]"),
-    pub: queryBase("[amenity=pub]"),
-    bar: queryBase("[amenity=bar]"),
-    fastfood: queryBase("[amenity=fast_food]"),
-    hotel: queryBase("[tourism=hotel]"),
-    hospital: queryBase("[amenity=hospital]"),
-    bank: queryBase("[amenity=bank]"),
-    atm: queryBase("[amenity=atm]"),
-    fuel: queryBase("[amenity=fuel]"),
-    park: queryBase("[leisure=park]"),
-  };
+  );
 
   return `
     [out:json][timeout:25];
     (
-      ${selectors[category] ?? selectors["all"]}
+      ${blocks.join("\n")}
     );
-    out center qt;
+    out center tags 200;
   `;
 }
 
-/* ---------- Overpass API call ---------- */
-async function callOverpass(query: string, endpoint: string): Promise<OSMResponse> {
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "User-Agent": UA,
-      Accept: "application/json",
-    },
-    body: new URLSearchParams({ data: query }).toString(),
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`${endpoint} ${res.status}`);
-  return res.json();
+async function fetchWithTimeout(
+  url: string,
+  body: string,
+  timeoutMs: number,
+): Promise<OverpassResponse | null> {
+  const ctrl = new AbortController();
+  const timeoutHandle = setTimeout(() => ctrl.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      body,
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "User-Agent": USER_AGENT,
+      },
+      signal: ctrl.signal,
+    });
+
+    if (!res.ok) {
+      // Non-200 (e.g. 429, 504) – treat as failure
+      return null;
+    }
+
+    const json = (await res.json()) as OverpassResponse;
+
+    if (!json || typeof json !== "object" || !Array.isArray(json.elements)) {
+      return null;
+    }
+
+    return json;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
 }
 
-/* ---------- API Route ---------- */
-export async function GET(req: Request) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const lat = Number(searchParams.get("lat"));
-    const lng = Number(searchParams.get("lng"));
-    const radius = Number(searchParams.get("radius") ?? "3000");
-    const category = (searchParams.get("category") ?? "all") as Category;
-    const q = searchParams.get("q") ?? undefined;
+// Normalise Overpass JSON into Place[]
+function normaliseElements(
+  elements: OverpassElement[],
+  requestedCategory: string | null,
+): Place[] {
+  const places: Place[] = [];
+  const requested = (requestedCategory ?? "all").toLowerCase();
 
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      // Keep 200 so client code can easily branch on empty `data`
-      return NextResponse.json({ error: "lat/lng required", data: [] }, { status: 200 });
+  for (const el of elements) {
+    const tags = el.tags ?? {};
+    const center: OverpassCenter | null =
+      el.type === "node"
+        ? el.lat !== undefined && el.lon !== undefined
+          ? { lat: el.lat, lon: el.lon }
+          : null
+        : el.center ?? null;
+
+    if (!center) continue;
+
+    // Default category
+    let category: string = "other";
+
+    if (
+      tags.amenity === "cafe" ||
+      tags.amenity === "coffee" ||
+      tags.amenity === "coffee_shop" ||
+      tags.shop === "coffee"
+    ) {
+      category = "coffee";
+    } else if (
+      tags.amenity === "clinic" ||
+      tags.healthcare === "clinic" ||
+      tags.amenity === "doctors"
+    ) {
+      category = "clinic";
+    } else if (
+      tags.office === "coworking" ||
+      tags.amenity === "coworking_space"
+    ) {
+      category = "coworking";
+    } else if (tags.amenity === "restaurant") {
+      category = "restaurant";
+    } else if (tags.amenity === "bar") {
+      category = "bar";
+    } else if (tags.shop === "supermarket") {
+      category = "supermarket";
+    } else if (tags.amenity === "pharmacy") {
+      category = "pharmacy";
     }
 
-    const ql = buildQuery(lat, lng, Math.max(50, Math.floor(radius)), category, q);
-
-    const endpoints = [
-      "https://overpass-api.de/api/interpreter",
-      "https://overpass.kumi.systems/api/interpreter",
-    ];
-
-    for (const ep of endpoints) {
-      try {
-        const json = await callOverpass(ql, ep);
-        const places: Place[] = json.elements
-          .map((e) => elementToPlace(e, category))
-          .filter((x): x is Place => x !== null);
-
-        // Always return an array so the client can render confidently
-        return NextResponse.json(places, {
-          status: 200,
-          headers: {
-            "Cache-Control": "no-store",
-          },
-        });
-      } catch {
-        // try next mirror
-        continue;
-      }
+    // If category filter is not "all", enforce it server-side as well
+    if (requested !== "all" && category !== requested) {
+      continue;
     }
 
-    return NextResponse.json({ error: "All Overpass mirrors failed", data: [] }, { status: 200 });
-  } catch (err) {
+    const addressParts = [
+      tags["addr:housenumber"],
+      tags["addr:street"],
+      tags["addr:city"],
+    ].filter(Boolean);
+
+    const address =
+      tags["addr:full"] ||
+      (addressParts.length ? addressParts.join(", ") : undefined);
+
+    const rawName =
+  tags.name ||
+  tags["name:en"] ||
+  tags.brand ||
+  tags.operator ||
+  tags["official_name"] ||
+  tags["alt_name"] ||
+  tags["short_name"] ||
+  tags["addr:housename"] ||
+  tags["addr:place"] ||
+  // last-ditch heuristics, optional:
+  (tags.shop && tags.brand ? `${tags.brand} ${tags.shop}` : undefined) ||
+  (tags.amenity && tags.brand ? `${tags.brand} ${tags.amenity}` : undefined);
+
+const place: Place = {
+  id: `${el.type}/${el.id}`,
+  lat: center.lat,
+  lng: center.lon,
+  name: rawName || "Unnamed place",
+  address,
+  tags,
+  category: category as Place["category"],
+};
+
+
+    places.push(place);
+  }
+
+  return places;
+}
+
+// ------- Handler ----------------------------------------------------
+
+export async function GET(req: NextRequest): Promise<NextResponse> {
+  const { searchParams } = new URL(req.url);
+
+  const lat = parseNumber(searchParams.get("lat"));
+  const lng = parseNumber(searchParams.get("lng"));
+  const radiusParam = parseNumber(searchParams.get("radius"));
+  const category = searchParams.get("category");
+
+  if (lat === undefined || lng === undefined) {
     return NextResponse.json(
-      {
-        error: "Overpass error",
-        detail: String(err),
-        data: [],
-      },
-      { status: 200 }
+      { error: "Missing lat/lng", data: [] as Place[] },
+      { status: 400 },
     );
   }
+
+  const radius = clampRadius(radiusParam);
+
+  const cacheKey = `${lat.toFixed(5)}|${lng.toFixed(5)}|${radius}|${
+    category ?? "all"
+  }`;
+  const now = Date.now();
+
+  const cached = CACHE.get(cacheKey);
+  if (cached && now - cached.ts < CACHE_TTL_MS) {
+    return NextResponse.json(cached.data, { status: 200 });
+  }
+
+  const overpassQuery = buildOverpassQuery(lat, lng, radius, category);
+  const body = `data=${encodeURIComponent(overpassQuery)}`;
+
+  let response: OverpassResponse | null = null;
+
+  // Try mirrors with timeouts; if all fail, return an empty dataset gracefully
+  for (const mirror of OVERPASS_MIRRORS) {
+    response = await fetchWithTimeout(mirror, body, 25_000);
+    if (response) break;
+  }
+
+  if (!response) {
+    const payload = {
+      error: "Overpass failed or timed out",
+      data: [] as Place[],
+    };
+    return NextResponse.json(payload, { status: 200 });
+  }
+
+  const places = normaliseElements(response.elements, category);
+  CACHE.set(cacheKey, { ts: now, data: places });
+
+  return NextResponse.json(places, { status: 200 });
 }
