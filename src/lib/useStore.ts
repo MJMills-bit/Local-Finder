@@ -1,19 +1,12 @@
 // src/lib/useStore.ts
 import { create } from "zustand";
-import type { Category } from "./types";
+import type { Place as CorePlace } from "./types";
 
-// Make CategoryId a superset of the shared Category type
-export type CategoryId = "all" | Category;
+// CategoryId is "all" plus whatever category the shared Place uses
+export type CategoryId = "all" | CorePlace["category"];
 
-export type Place = {
-  id: string;
-  lat: number;
-  lng: number;
-  category: CategoryId;
-  name?: string | null;
-  address?: string | null;
-  tags?: Record<string, string>;
-};
+// Store Place is exactly the same as the shared Place
+export type Place = CorePlace;
 
 export type UserLocation = { lat: number; lng: number } | null;
 
