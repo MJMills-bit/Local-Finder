@@ -1,22 +1,9 @@
 // src/lib/useStore.ts
 import { create } from "zustand";
+import type { Category } from "./types";
 
-
-export type CategoryId =
-  | "all"
-  | "coffee"
-  | "coworking"
-  | "clinic"
-  | "restaurant"
-  | "bar"
-  | "supermarket"
-  | "pharmacy"
-  | "hotel"
-  | "hospital"
-  | "bank"
-  | "atm"
-  | "fuel"
-  | "park";
+// Make CategoryId a superset of the shared Category type
+export type CategoryId = "all" | Category;
 
 export type Place = {
   id: string;
@@ -30,11 +17,13 @@ export type Place = {
 
 export type UserLocation = { lat: number; lng: number } | null;
 
-export type AreaOverlay = {
-  key: string;
-  bbox?: [number, number, number, number];
-  polygon?: unknown;
-} | null;
+export type AreaOverlay =
+  | {
+      key: string;
+      bbox?: [number, number, number, number];
+      polygon?: unknown;
+    }
+  | null;
 
 type ViewState = {
   zoom: number;
