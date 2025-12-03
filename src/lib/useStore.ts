@@ -1,6 +1,7 @@
 // src/lib/useStore.ts
 import { create } from "zustand";
 
+
 export type CategoryId =
   | "all"
   | "coffee"
