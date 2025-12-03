@@ -13,8 +13,6 @@ import {
 import type { Map as LeafletMap, LatLngExpression } from "leaflet";
 import L, { LeafletEventHandlerFnMap } from "leaflet";
 import useStore from "@/lib/useStore";
-import type { Place as StorePlace } from "@/lib/useStore";
-import type { Place as CorePlace } from "@/lib/types";
 import PinPopup from "@/components/PinPopup";
 import { useIsDesktop } from "@/lib/useMedia";
 import "leaflet/dist/leaflet.css";
@@ -50,13 +48,7 @@ const userIcon: L.Icon = L.icon({
   popupAnchor: [0, -26],
 });
 
-// Convert store Place (name may be null/undefined) to core Place for PinPopup
-function toCorePlace(p: StorePlace): CorePlace {
-  return {
-    ...p,
-    name: p.name ?? "Unnamed place",
-  } as CorePlace;
-}
+
 
 function centersClose(
   a: { lat: number; lng: number },
@@ -299,7 +291,7 @@ export default function MapView({
               setLockOnSelection(true);
             },
           };
-          const corePlace = toCorePlace(p);
+          const storePlace = { ...p, name: p.name ?? "Unnamed place" };
 
           return (
             <Marker key={p.id} position={[p.lat, p.lng]} eventHandlers={handlers}>
@@ -311,7 +303,8 @@ export default function MapView({
                   maxWidth={320}
                   minWidth={220}
                 >
-                  <PinPopup place={corePlace} />
+                  <PinPopup place={storePlace} />
+
                 </Popup>
               ) : null}
             </Marker>
