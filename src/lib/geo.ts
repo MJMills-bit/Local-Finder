@@ -1,6 +1,6 @@
 "use client";
 
-import { useStore } from "@/lib/useStore";
+import useStore from "@/lib/useStore";
 import type { Map as LeafletMap } from "leaflet";
 
 /** Optional global reference for smooth flyTo */
@@ -43,7 +43,7 @@ export async function locateMe(): Promise<void> {
           lat,
           lng,
           category: "all",
-          address: null,
+          address: "",
           tags: { note: "Current device location" },
         });
 
