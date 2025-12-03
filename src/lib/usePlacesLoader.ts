@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import useStore from "@/lib/useStore";
 import type { Place } from "@/lib/types";
 
-/** Debounce a value (not a ref) so deps are correct */
 function useDebouncedValue<T>(value: T, delay = 250): T {
   const [v, setV] = useState<T>(value);
   useEffect(() => {
@@ -13,7 +12,6 @@ function useDebouncedValue<T>(value: T, delay = 250): T {
   return v;
 }
 
-/** Basic text match helper (same logic as elsewhere) */
 function matchesQuery(p: Place, qLower: string): boolean {
   const hay = [
     p.name,
@@ -30,14 +28,13 @@ function matchesQuery(p: Place, qLower: string): boolean {
   return hay.includes(qLower);
 }
 
-// global request guards (per tab)
 const IN_FLIGHT = new Map<string, Promise<Place[] | null>>();
-const RECENTLY_SERVED = new Map<string, number>(); // key -> ts
+const RECENTLY_SERVED = new Map<string, number>();
 
 export default function usePlacesLoader() {
   const category     = useStore((s) => s.category);
   const radius       = useStore((s) => s.radius);
-  const center       = useStore((s) => s.center);          // CenterTuple | undefined
+  const center       = useStore((s) => s.center);
   const query        = useStore((s) => s.query);
 
   const setPlaces    = useStore((s) => s.setPlaces);
@@ -46,28 +43,27 @@ export default function usePlacesLoader() {
 
   const debouncedRadius = useDebouncedValue(radius, 250);
 
-  // local cache (warm + SWR)
   const cacheRef = useRef<Map<string, { ts: number; data: Place[] }>>(new Map());
   const reqIdRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
 
+  const lat = center?.[0];
+  const lng = center?.[1];
+
   useEffect(() => {
-    if (!center) return; // nothing to fetch yet
-    const [lat, lng] = center; // ✅ tuple, not object
+    if (!center) return;
 
     const qLower = (query ?? "").trim().toLowerCase();
     const hasQuery = qLower.length >= 2;
 
-    // stable key (tuple + filters)
     const key = [
-      lat.toFixed(6),
-      lng.toFixed(6),
-      String(Math.max(50, Math.floor(debouncedRadius))),
+      lat?.toFixed(6),
+      lng?.toFixed(6),
+      String(Math.max(50, Math.floor(debouncedRadius || 0))),
       category ?? "all",
       qLower,
     ].join("|");
 
-    // abort previous
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -79,7 +75,6 @@ export default function usePlacesLoader() {
     const SWR_GAP = 30 * 1000;
     const RECENT_WINDOW = 5 * 1000;
 
-    // start spinner (always)
     const spinStart = performance.now();
     const MIN_SPINNER_MS = 250;
     setLoading(true);
@@ -123,19 +118,17 @@ export default function usePlacesLoader() {
       }
     };
 
-    // serve warm cache immediately (still show spinner briefly)
     const warm = cacheRef.current.get(key);
     if (warm && now - warm.ts < TTL) {
       const data = hasQuery ? warm.data.filter((p) => matchesQuery(p, qLower)) : warm.data;
       if (id === reqIdRef.current) setPlaces(data);
 
-      // background revalidate if stale-while-revalidate gap passed
       const lastRev = cacheRef.current.get(`rev:${key}`)?.ts ?? 0;
       if (now - lastRev >= SWR_GAP) {
         cacheRef.current.set(`rev:${key}`, { ts: now, data: [] });
         (async () => {
           try {
-            const baseR = Math.max(debouncedRadius, hasQuery ? 6000 : debouncedRadius);
+            const baseR = Math.max(debouncedRadius || 0, hasQuery ? 6000 : debouncedRadius || 0);
             let fresh = await fetchDedupe(baseR);
             if (hasQuery && (fresh?.filter((p) => matchesQuery(p, qLower)).length ?? 0) < 5) {
               const bigger = Math.min(baseR * 2, 12000);
@@ -150,11 +143,9 @@ export default function usePlacesLoader() {
               cacheRef.current.set(key, { ts: Date.now(), data: fresh });
               const filtered = hasQuery ? fresh.filter((p) => matchesQuery(p, qLower)) : fresh;
               setPlaces(filtered);
-              RECENTLY_SERVED.set(`${key}::r=${Math.max(debouncedRadius, hasQuery ? 6000 : debouncedRadius)}`, Date.now());
+              RECENTLY_SERVED.set(`${key}::r=${Math.max(debouncedRadius || 0, hasQuery ? 6000 : debouncedRadius || 0)}`, Date.now());
             }
-          } catch {
-            /* swallow bg errors */
-          }
+          } catch {}
         })();
       }
 
@@ -162,10 +153,9 @@ export default function usePlacesLoader() {
       return () => ctrl.abort();
     }
 
-    // network path
     (async () => {
       try {
-        const baseR = Math.max(debouncedRadius, hasQuery ? 6000 : debouncedRadius);
+        const baseR = Math.max(debouncedRadius || 0, hasQuery ? 6000 : debouncedRadius || 0);
         let data = await fetchDedupe(baseR);
 
         if (hasQuery && (data?.filter((p) => matchesQuery(p, qLower)).length ?? 0) < 5) {
@@ -194,6 +184,5 @@ export default function usePlacesLoader() {
     })();
 
     return () => ctrl.abort();
-    // ✅ correct deps: value versions, not refs
-  }, [category, debouncedRadius, center?.[0], center?.[1], query, setError, setLoading, setPlaces]);
+  }, [category, debouncedRadius, lat, lng, center, query, setError, setLoading, setPlaces]);
 }
