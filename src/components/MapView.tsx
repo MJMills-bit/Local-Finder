@@ -291,7 +291,6 @@ export default function MapView({
               setLockOnSelection(true);
             },
           };
-          const storePlace = { ...p, name: p.name ?? "Unnamed place" };
 
           return (
             <Marker key={p.id} position={[p.lat, p.lng]} eventHandlers={handlers}>
@@ -303,7 +302,7 @@ export default function MapView({
                   maxWidth={320}
                   minWidth={220}
                 >
-                  <PinPopup place={storePlace} />
+                  <PinPopup place={{ ...p, name: p.name ?? "Unnamed place" }} />
 
                 </Popup>
               ) : null}
