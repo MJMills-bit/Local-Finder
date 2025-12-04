@@ -54,6 +54,6 @@ export function toPlace(
     lng,
     category: category as CategoryId,
     address: addr || undefined,
-    tags: Object.keys(tags),
+    tags,
   };
 }
